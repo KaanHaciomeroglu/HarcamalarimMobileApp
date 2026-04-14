@@ -1,10 +1,15 @@
 # Harcamalarim — Uygulama Planı
 
+
+<img src="icon.png" width="100" alt="App Icon" />
+
+
 ## Genel Bakış
 
 Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere göre girilebilir, dashboard ekranında özet ve grafikler görüntülenir. Tüm veriler cihazda yerel olarak saklanır (AsyncStorage). Sunucu veya domain gerekmez.
 
-![alt text](Screenshot_20260415_001159_host_exp_exponent_ExperienceActivity.jpg)
+<img src="Screenshot_20260415_001159_host_exp_exponent_ExperienceActivity.jpg" width="100" alt="App Icon" />
+
 ---
 
 ## Teknoloji Stack
