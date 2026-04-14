@@ -1,4 +1,4 @@
-# mobilHarcamalarim — Uygulama Planı
+# Harcamalarim — Uygulama Planı
 
 ## Genel Bakış
 
