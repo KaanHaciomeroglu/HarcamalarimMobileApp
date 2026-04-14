@@ -4,6 +4,7 @@
 
 Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere göre girilebilir, dashboard ekranında özet ve grafikler görüntülenir. Tüm veriler cihazda yerel olarak saklanır (AsyncStorage). Sunucu veya domain gerekmez.
 
+![alt text](Screenshot_20260415_001159_host_exp_exponent_ExperienceActivity.jpg)
 ---
 
 ## Teknoloji Stack
