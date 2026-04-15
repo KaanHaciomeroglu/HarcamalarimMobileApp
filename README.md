@@ -2,10 +2,10 @@
 
 <img src="icon.png" width="100" alt="App Icon" />
 
-Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere göre girebilir, özet ve grafiklerle takip edebilirsin. Tüm veriler cihazda yerel olarak saklanır — sunucu veya internet bağlantısı gerekmez (kur çevrimi hariç).
+Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere göre girebilir, özet ve grafiklerle takip edebilir ve uygulamanın vermiş olduğu aylık çıkarımları görebilirsiniz. Tüm veriler cihazda yerel olarak saklanır — sunucu veya kur çevirimi hariç internet bağlantısı gerekmez.
 
-<img src="summaryScreen.jpg" width="400" alt="Uygulama Ekran Görüntüsü" />
-
+<img src="screenshot/summaryScreen.jpg" width="400" alt="Uygulama Ekran Görüntüsü" /> <img src="screenshot/spendingHistory.jpg" width="400" alt="Uygulama Ekran Görüntüsü" />
+<img src="screenshot/monthlyAnalysis.jpg" width="400" alt="Uygulama Ekran Görüntüsü" /> <img src="screenshot/monthlyInference.jpg" width="400" alt="Uygulama Ekran Görüntüsü" />
 ---
 
 ## Teknoloji Stack
