@@ -3,16 +3,18 @@ import { DEFAULT_CATEGORIES, Category } from '../constants/categories';
 
 export interface Expense {
   id: string;
-  amount: number;
+  amount: number;          // Kullanıcının girdiği orijinal tutar
+  currency: string;        // Orijinal para birimi (₺, $, €, £)
+  convertedAmount: number; // Sistem para birimine çevrilmiş tutar
+  exchangeRate: number;    // Kullanılan kur (1 birim orijinal = X sistem para birimi)
   categoryId: string;
   date: string; // YYYY-MM-DD
   note: string;
   createdAt: string;
-  aiComment?: string;
 }
 
 export interface Settings {
-  currency: string;
+  currency: string;        // Sistem para birimi (₺, $, €, £)
   monthlyBudget: number;
   categories: Category[];
 }

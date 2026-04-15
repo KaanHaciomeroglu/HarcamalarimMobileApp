@@ -1,79 +1,105 @@
-import { Tabs } from 'expo-router';
+import { createMaterialTopTabNavigator, MaterialTopTabNavigationOptions } from '@react-navigation/material-top-tabs';
+import { withLayoutContext } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../../constants/theme';
+import { View, StyleSheet } from 'react-native';
+
+const { Navigator } = createMaterialTopTabNavigator();
+
+// Register the Material Top Tab Navigator with Expo Router
+export const MaterialTopTabs = withLayoutContext<
+  MaterialTopTabNavigationOptions,
+  typeof Navigator
+>(Navigator);
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 function TabIcon({
   name,
   focused,
+  color
 }: {
   name: IoniconsName;
   focused: boolean;
+  color: string;
 }) {
   return (
     <Ionicons
       name={focused ? name : (`${name}-outline` as IoniconsName)}
-      size={24}
-      color={focused ? Colors.primary : Colors.textSecondary}
+      size={22}
+      color={color}
     />
   );
 }
 
 export default function TabsLayout() {
   return (
-    <Tabs
+    <MaterialTopTabs
+      tabBarPosition="bottom"
       screenOptions={{
-        headerShown: false,
+        tabBarActiveTintColor: Colors.primary,
+        tabBarInactiveTintColor: Colors.textSecondary,
+        tabBarIndicatorStyle: { top: 0, height: 3, backgroundColor: Colors.primary, borderRadius: 3 },
         tabBarStyle: {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.border,
           borderTopWidth: 1,
+          height: 65,
+          elevation: 0,
+          shadowOpacity: 0,
+          paddingBottom: 10,
         },
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textSecondary,
         tabBarLabelStyle: {
-          fontSize: FontSize.xs,
-          fontWeight: '600',
+          fontSize: 10,
+          fontWeight: '700',
+          textTransform: 'none',
+          marginBottom: 0,
+          marginTop: -2,
         },
+        tabBarItemStyle: {
+          justifyContent: 'center',
+          paddingVertical: 5,
+        },
+        tabBarShowIcon: true,
+        swipeEnabled: true,
       }}
     >
-      <Tabs.Screen
+      <MaterialTopTabs.Screen
         name="index"
         options={{
           title: 'Özet',
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name="home" focused={focused} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="home" focused={focused} color={color} />
           ),
         }}
       />
-      <Tabs.Screen
+      <MaterialTopTabs.Screen
         name="expenses"
         options={{
           title: 'Harcamalar',
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name="list" focused={focused} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="list" focused={focused} color={color} />
           ),
         }}
       />
-      <Tabs.Screen
+      <MaterialTopTabs.Screen
         name="monthly"
         options={{
           title: 'Aylık',
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name="bar-chart" focused={focused} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="bar-chart" focused={focused} color={color} />
           ),
         }}
       />
-      <Tabs.Screen
+      <MaterialTopTabs.Screen
         name="settings"
         options={{
           title: 'Ayarlar',
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name="settings" focused={focused} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="settings" focused={focused} color={color} />
           ),
         }}
       />
-    </Tabs>
+    </MaterialTopTabs>
   );
 }

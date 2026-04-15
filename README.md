@@ -1,14 +1,10 @@
-# Harcamalarim — Uygulama Planı
-
+# Harcamalarım
 
 <img src="icon.png" width="100" alt="App Icon" />
 
+Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere göre girebilir, özet ve grafiklerle takip edebilirsin. Tüm veriler cihazda yerel olarak saklanır — sunucu veya internet bağlantısı gerekmez (kur çevrimi hariç).
 
-## Genel Bakış
-
-Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere göre girilebilir, dashboard ekranında özet ve grafikler görüntülenir. Tüm veriler cihazda yerel olarak saklanır (AsyncStorage). Sunucu veya domain gerekmez.
-
-<img src="Screenshot_20260415_001159_host_exp_exponent_ExperienceActivity.jpg" width="400" alt="App Icon" />
+<img src="summaryScreen.jpg" width="400" alt="Uygulama Ekran Görüntüsü" />
 
 ---
 
@@ -16,49 +12,72 @@ Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere
 
 | Katman | Teknoloji |
 |--------|-----------|
-| Framework | React Native + Expo (SDK 54) |
+| Framework | React Native + Expo (SDK 54, bare workflow) |
 | Navigasyon | Expo Router (file-based) |
-| Yerel depolama | AsyncStorage (`@react-native-async-storage/async-storage`) |
-| Grafikler | `react-native-gifted-charts` |
-| UI bileşenleri | Custom + `@expo/vector-icons` |
-| Tarih işlemleri | `date-fns` |
-| AI | Google Gemini REST API (`gemini-2.5-flash`), `@google/generative-ai` kaldırıldı — direkt `fetch` kullanılıyor |
+| Yerel depolama | AsyncStorage |
+| UI bileşenleri | Custom + `@expo/vector-icons` (Ionicons) |
+| Gradyanlar | `expo-linear-gradient` |
+| Tarih işlemleri | `date-fns` + `@react-native-community/datetimepicker` |
+| Döviz kurları | TCMB XML API (gerçek zamanlı, bellek önbellekli) |
 | Build | EAS Build (cloud APK) |
 
 ---
 
 ## Ekranlar
 
-### 1. Dashboard (Ana Ekran)
-- Bu ayki toplam harcama
-- Kategorilere göre dağılım (bar grafik)
-- Son 5 harcama özeti
-- Aylık bütçe hedefi ve kalan miktar
+### 1. Özet (Ana Ekran)
+- Bu ayki toplam harcama kartı (ay/yıl bilgisiyle)
+- Aylık bütçe hedefi ve kullanım çubuğu
+- Kategorilere göre harcama dağılımı (2 sütunlu grid)
+- Son 5 harcama listesi (tapa → düzenle)
+- Harcama ekle butonu (FAB)
 
 ### 2. Harcama Ekle
-- Tutar girişi
-- Kategori seçimi
-- Tarih seçimi (varsayılan: bugün)
-- Not alanı (opsiyonel) — klavye açılınca görünür kalır
-- Kaydet sonrası **AI yorum paneli**: harcama bağlamında somut tavsiye ve yönlendirme içeren yorum gösterir; yorum harcamayla birlikte kaydedilir
-- "Tamam" butonu yorum bitince aktif olur, "Yorumu beklemeden kapat" linki her zaman görünür
-
-### 3. Harcama Listesi
-- Kategoriye göre filtre (chip'ler)
-- Tarih bazlı gruplama, bölüm toplamları
-- Tapa → düzenle/sil modalı
-
-### 4. Aylık Özet
-- Ay seçici (önceki aylara gidebilme)
-- Toplam harcama + geçen ayla karşılaştırma (trending ikonları)
-- Bar grafik: gün bazlı harcama dağılımı (scrollable)
-- **AI ile Analiz Et** butonu: kategori dağılımı, günlük ortalama, bütçe durumu, önceki ay farkını analiz eder; rakamsal hedefler ve somut öneriler içerir; scrollable panel içinde gösterir
-
-### 5. Ayarlar
+- Tutar girişi (seçili para birimi sembolüyle)
 - Para birimi seçimi (₺ / $ / € / £)
-- Aylık bütçe hedefi belirleme
-- Kategoriler listesi
-- Tüm verileri sıfırla (danger zone)
+- Sistem para birimi farklıysa gerçek zamanlı kur önizlemesi
+- Tarih seçimi — iOS: özel bottom sheet modal, Android: native dialog
+- 2 sütunlu kategori seçimi (ikonlu)
+- Not alanı (opsiyonel)
+
+### 3. Harcama Düzenle
+- Add Expense ile aynı tasarım ve özellikler
+- Tarih değiştirme
+- Sil butonu (onaylı)
+
+### 4. Harcama Geçmişi
+- Tarih bazlı gruplama (Bugün / Dün / tarih)
+- Bölüm toplamları
+- Kategori filtre chip'leri
+- Orijinal para birimi farklıysa dönüşüm bilgisi
+
+### 5. Aylık Analiz
+- Bu ay toplam harcama + geçen ayla karşılaştırma (% fark, trend ikonu)
+- Günlük harcama bar grafiği — bugün ortada açılır, tapa tutar gösterir
+- Kural tabanlı otomatik çıkarımlar (her yeni harcamada yenilenir):
+  - Kategoride %20+ artış / azalış
+  - Bu ay yeni başlayan kategori
+  - Tek kategorinin payı %40'ı geçerse uyarı
+  - Genel trend (%30+ artış veya %-15 azalış)
+  - En sık harcama günü (≥3 işlem)
+- Kategori detayları: pay yüzdesi, geçen ayla fark
+
+### 6. Ayarlar
+- Sistem para birimi seçimi — değişince tüm harcamalar TCMB kuruyla yeniden hesaplanır
+- Aylık bütçe hedefi (switch kapatılınca otomatik sıfırlanır)
+- Kategoriler listesi (2 sütunlu grid, ikonlu)
+- Tüm verileri temizle
+- Tüm kritik işlemler onay modalıyla korunur
+
+---
+
+## Döviz Kuru Sistemi
+
+- Kaynak: TCMB (Türkiye Cumhuriyet Merkez Bankası) ForexSelling kurları
+- Hafta sonu / tatil günlerinde geriye doğru en fazla 7 iş günü aranır
+- Sonuçlar bellek önbelleğinde tutulur (aynı tarih için tekrar istek atılmaz)
+- Ağ hatası durumunda yaklaşık sabit kurlarla devam edilir
+- Para birimi değiştirildiğinde tüm geçmiş harcamalar harcama tarihindeki TCMB kuruyla yeniden hesaplanır
 
 ---
 
@@ -67,13 +86,15 @@ Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere
 ### Harcama (Expense)
 ```json
 {
-  "id": "timestamp-random",
+  "id": "1713180000000-abc123",
   "amount": 150.50,
+  "currency": "₺",
+  "convertedAmount": 150.50,
+  "exchangeRate": 1,
   "categoryId": "yemek",
-  "date": "2026-04-14",
+  "date": "2026-04-15",
   "note": "Öğle yemeği",
-  "createdAt": "2026-04-14T12:30:00Z",
-  "aiComment": "AI tarafından üretilen yorum metni"
+  "createdAt": "2026-04-15T12:30:00.000Z"
 }
 ```
 
@@ -82,6 +103,7 @@ Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere
 {
   "id": "yemek",
   "name": "Yemek & İçecek",
+  "icon": "restaurant",
   "color": "#FF8C69"
 }
 ```
@@ -101,128 +123,80 @@ Kişisel harcama takip uygulaması. Günlük ve aylık harcamaları kategorilere
 
 | Token | Renk | Kullanım |
 |-------|------|----------|
-| `background` | #0F1117 | Ana arka plan |
-| `surface` | #1A1D27 | Kart / panel arka planı |
-| `surfaceAlt` | #22263A | İkincil kart |
-| `primary` | #6C63FF | Vurgu rengi (mor-indigo) |
-| `primaryMuted` | #6C63FF26 | Vurgu arka planı (transparan) |
-| `success` | #4ADE80 | Pozitif / bütçe tamam |
-| `danger` | #F87171 | Hata / bütçe aşıldı |
-| `textPrimary` | #F1F2F6 | Ana metin |
-| `textSecondary` | #8B8FA8 | İkincil metin |
-| `border` | #2E3248 | Kenarlık |
+| `background` | #0B0D13 | Ana arka plan |
+| `surface` | #161A24 | Kart / panel arka planı |
+| `surfaceAlt` | #1F2436 | İkincil kart |
+| `primary` | #7B61FF | Vurgu rengi (mor) |
+| `success` | #00F294 | Pozitif / azalan harcama |
+| `danger` | #FF4B6E | Hata / bütçe aşıldı / artan harcama |
+| `warning` | #FFB800 | Uyarı |
+| `textPrimary` | #FFFFFF | Ana metin |
+| `textSecondary` | #94A3B8 | İkincil metin |
+| `border` | #2A3045 | Kenarlık |
 
 ---
 
 ## Kategoriler
 
-| # | Kategori | Renk |
-|---|----------|------|
-| 1 | Yemek & İçecek | #FF8C69 |
-| 2 | Market | #4ADE80 |
-| 3 | Ulaşım | #60A5FA |
-| 4 | Faturalar & Abonelikler | #FBBF24 |
-| 5 | Sağlık | #F472B6 |
-| 6 | Eğlence | #A78BFA |
-| 7 | Giyim & Aksesuar | #34D399 |
-| 8 | Kişisel Bakım | #FB923C |
-| 9 | Eğitim | #38BDF8 |
-| 10 | Ev & Yaşam | #E879F9 |
-| 11 | Diğer | #94A3B8 |
+| # | Kategori | İkon | Renk |
+|---|----------|------|------|
+| 1 | Yemek & İçecek | restaurant | #FF8C69 |
+| 2 | Market | cart | #4ADE80 |
+| 3 | Ulaşım | car | #60A5FA |
+| 4 | Faturalar | flash | #FBBF24 |
+| 5 | Sağlık | heart | #F472B6 |
+| 6 | Eğlence | game-controller | #A78BFA |
+| 7 | Giyim | shirt | #34D399 |
+| 8 | Kişisel Bakım | sparkles | #FB923C |
+| 9 | Eğitim | book | #38BDF8 |
+| 10 | Ev & Yaşam | home | #E879F9 |
+| 11 | Diğer | ellipsis-horizontal | #94A3B8 |
 
 ---
 
 ## Proje Dizin Yapısı
 
 ```
-mobilHarcamalarimApp/
+HarcamalarimMobileApp/
 ├── app/
 │   ├── (tabs)/
-│   │   ├── _layout.tsx          # Tab bar (safe area otomatik)
-│   │   ├── index.tsx            # Dashboard
-│   │   ├── expenses.tsx         # Harcama listesi
-│   │   ├── monthly.tsx          # Aylık özet + AI analizi
+│   │   ├── _layout.tsx          # Tab bar
+│   │   ├── index.tsx            # Özet (Dashboard)
+│   │   ├── expenses.tsx         # Harcama geçmişi
+│   │   ├── monthly.tsx          # Aylık analiz
 │   │   └── settings.tsx         # Ayarlar
-│   ├── add-expense.tsx          # Harcama ekle (modal) + AI yorum + kaydetme
-│   ├── edit-expense.tsx         # Harcama düzenle/sil + AI yorumu görüntüleme
-│   └── _layout.tsx              # Root stack (modal tanımları)
+│   ├── add-expense.tsx          # Harcama ekle
+│   ├── edit-expense.tsx         # Harcama düzenle / sil
+│   └── _layout.tsx              # Root stack
 ├── services/
-│   └── ai.ts                    # callGemini(), getExpenseComment(), getMonthlyAnalysis()
-├── hooks/
-│   ├── useExpenses.ts
-│   └── useSettings.ts
+│   ├── exchangeRate.ts          # TCMB kur çekme, dönüşüm, önbellekleme
+│   └── insights.ts              # Kural tabanlı aylık çıkarım motoru
 ├── store/
-│   └── storage.ts               # AsyncStorage CRUD, Expense/Settings interface
+│   └── storage.ts               # AsyncStorage CRUD (Expense, Settings)
 ├── constants/
-│   ├── categories.ts            # 11 kategori tanımı
-│   ├── theme.ts                 # Koyu renk paleti, Spacing, Radius, FontSize
-│   └── config.ts                # GEMINI_API_KEY
-├── eas.json                     # EAS Build profilleri (preview APK, production AAB)
-└── PLAN.md
+│   ├── categories.ts            # 11 varsayılan kategori
+│   └── theme.ts                 # Renk paleti, Spacing, Radius, FontSize
+└── android/                     # Bare workflow — native Android projesi
 ```
-
----
-
-## Geliştirme Adımları
-
-1. ✅ **Proje kurulumu** — `npx create-expo-app` (mobilHarcamalarimApp), bağımlılıklar `--legacy-peer-deps`
-2. ✅ **Veri katmanı** — AsyncStorage CRUD, `aiComment` alanı Expense modeline eklendi
-3. ✅ **Navigasyon** — 4 tab + modal yapısı
-4. ✅ **Harcama Ekle ekranı** — Form, klavye düzeltmesi (`behavior="height"`), AI yorum paneli
-5. ✅ **Harcama Düzenle ekranı** — Prefill form, sil butonu, AI yorumu sol çizgiyle gösterim
-6. ✅ **Harcama Listesi ekranı** — Tarih gruplamalı, kategori filtre chip'leri
-7. ✅ **Dashboard** — Aylık toplam, bütçe bar, kategori dağılımı, son 5 harcama
-8. ✅ **Aylık Özet ekranı** — Ay seçici, günlük bar grafik, kategori breakdown, AI analiz butonu
-9. ✅ **Ayarlar ekranı** — Para birimi, bütçe, kategoriler, veri sıfırlama
-10. ✅ **AI entegrasyonu** — Gemini REST API (`fetch`), `gemini-2.5-flash`, `maxOutputTokens: 2048`
-11. ✅ **AI yorum kalitesi** — Finans koçu sistem promptu, somut tavsiye + rakamsal hedef zorunluluğu
-12. ✅ **AI yorum kalıcılığı** — Yorum `updateExpense` ile kaydediliyor, edit ekranında görüntüleniyor
-13. ✅ **UI düzeltmeleri** — Tab bar safe area, klavye not alanını gizleme, AI kutusu scrollable
-14. ✅ **EAS Build** — `eas.json` oluşturuldu, PC'siz APK build alınabilir
-
----
-
-## AI Entegrasyonu
-
-### Kurulum
-`constants/config.ts` dosyasındaki `GEMINI_API_KEY` değerini [aistudio.google.com/apikey](https://aistudio.google.com/apikey) adresinden alınan anahtarla değiştir.
-
-### Özellikler
-
-| Özellik | Tetikleyici | Fonksiyon | Model |
-|---------|-------------|-----------|-------|
-| Harcama yorumu | Kaydet butonu | `getExpenseComment()` | gemini-2.5-flash |
-| Aylık analiz | "AI ile Analiz Et" butonu | `getMonthlyAnalysis()` | gemini-2.5-flash |
-
-### Mimari
-- SDK yerine doğrudan `fetch` ile Gemini REST API çağrılıyor (React Native/Hermes uyumluluğu için)
-- `onChunk / onDone / onError` callback pattern — mevcut UI akışıyla uyumlu
-- Yorum tamamlanınca `updateExpense` ile harcamaya yazılıyor
-- `maxOutputTokens: 2048` — yanıtların yarıda kesilmesini önler
-
-### Prompt Felsefesi
-- Sistem promptu: "finans koçu" rolü, sadece gözlem değil her yanıtta somut aksiyon zorunlu
-- Harcama yorumu: kategori aylık durumu + bütçe etkisi + limit/alternatif önerisi
-- Aylık analiz: en yüksek kategoriler, önceki ay karşılaştırması, gelecek ay için rakamsal hedefler
 
 ---
 
 ## Kurulum ve Çalıştırma
 
-### Geliştirme (Expo Go)
+### Geliştirme
 ```bash
-cd mobilHarcamalarimApp
-npm install --legacy-peer-deps
-# constants/config.ts içindeki GEMINI_API_KEY değerini doldur
+npm install
 npx expo start
-# QR kodu Expo Go uygulamasıyla tara (bilgisayar ve telefon aynı Wi-Fi'da olmalı)
 ```
 
-### Bağımsız APK (PC'siz çalışır)
+### Android (bare workflow)
+```bash
+npx expo run:android
+```
+
+### Bağımsız APK (EAS Build)
 ```bash
 npm install -g eas-cli
-eas login          # expo.dev hesabı gerekli (ücretsiz)
+eas login
 eas build -p android --profile preview
-# Build ~10 dakika sürer, indirme linki SMS/mail ile gelir
-# APK'yı telefona indir, "Bilinmeyen kaynak" iznini ver, yükle
 ```

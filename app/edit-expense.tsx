@@ -1,201 +1,352 @@
 import {
   View,
   Text,
+  StyleSheet,
   TextInput,
   TouchableOpacity,
   ScrollView,
-  StyleSheet,
   Alert,
-  KeyboardAvoidingView,
+  ActivityIndicator,
+  StatusBar,
+  Modal,
   Platform,
 } from 'react-native';
 import { useState, useEffect } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { format } from 'date-fns';
-import { tr } from 'date-fns/locale';
+import { LinearGradient } from 'expo-linear-gradient';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors, Spacing, Radius, FontSize } from '../constants/theme';
-import { updateExpense, deleteExpense, getExpenses, getSettings } from '../store/storage';
+import { getExpenses, getSettings, updateExpense, deleteExpense } from '../store/storage';
 import { Category } from '../constants/categories';
+import { getRatesForDate, getExchangeRate } from '../services/exchangeRate';
+
+function formatDateLocal(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 export default function EditExpenseScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [amount, setAmount] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('yemek');
   const [note, setNote] = useState('');
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [categoryId, setCategoryId] = useState('');
+  const [currency, setCurrency] = useState('₺');
+  const [date, setDate] = useState(new Date());
+  const [tempDate, setTempDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [aiComment, setAiComment] = useState('');
+  const [systemCurrency, setSystemCurrency] = useState('₺');
+  const [loading, setLoading] = useState(false);
+  const [previewRate, setPreviewRate] = useState<number | null>(null);
+  const [previewConverted, setPreviewConverted] = useState<number | null>(null);
+  const [rateLoading, setRateLoading] = useState(false);
 
   useEffect(() => {
-    async function load() {
-      const [expenses, settings] = await Promise.all([getExpenses(), getSettings()]);
-      const exp = expenses.find((e) => e.id === id);
-      if (exp) {
-        setAmount(exp.amount.toString().replace('.', ','));
-        setSelectedCategory(exp.categoryId);
-        setNote(exp.note);
-        setDate(exp.date);
-        setAiComment(exp.aiComment ?? '');
-      }
+    (async () => {
+      const [exps, settings] = await Promise.all([getExpenses(), getSettings()]);
       setCategories(settings.categories);
-    }
-    load();
+      setSystemCurrency(settings.currency);
+
+      const exp = exps.find((e) => e.id === id);
+      if (exp) {
+        setAmount(exp.amount.toString());
+        setNote(exp.note || '');
+        setCategoryId(exp.categoryId);
+        setCurrency(exp.currency);
+        const [y, m, d] = exp.date.split('-').map(Number);
+        setDate(new Date(y, m - 1, d));
+      } else {
+        router.back();
+      }
+    })();
   }, [id]);
 
-  async function handleSave() {
-    const parsed = parseFloat(amount.replace(',', '.'));
-    if (!amount || isNaN(parsed) || parsed <= 0) {
-      Alert.alert('Hata', 'Geçerli bir tutar girin.');
+  // Kur önizlemesi
+  useEffect(() => {
+    if (currency === systemCurrency) {
+      setPreviewRate(null);
+      setPreviewConverted(null);
       return;
     }
-    setSaving(true);
-    await updateExpense(id, {
-      amount: parsed,
-      categoryId: selectedCategory,
-      date,
-      note: note.trim(),
-    });
-    setSaving(false);
-    router.back();
+    const num = parseFloat(amount.replace(',', '.'));
+    if (isNaN(num) || num <= 0) {
+      setPreviewRate(null);
+      setPreviewConverted(null);
+      return;
+    }
+    let cancelled = false;
+    setRateLoading(true);
+    (async () => {
+      try {
+        const dateStr = formatDateLocal(date);
+        const rates = await getRatesForDate(dateStr);
+        const rate = getExchangeRate(currency, systemCurrency, rates);
+        if (!cancelled) {
+          setPreviewRate(rate);
+          setPreviewConverted(num * rate);
+        }
+      } catch {
+        // sessizce geç
+      } finally {
+        if (!cancelled) setRateLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [amount, currency, systemCurrency, date]);
+
+  async function handleSave() {
+    const num = parseFloat(amount.replace(',', '.'));
+    if (isNaN(num) || num <= 0) {
+      Alert.alert('Hata', 'Lütfen geçerli bir tutar girin.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let convertedAmount = num;
+      let rate = 1;
+      const dateStr = formatDateLocal(date);
+
+      if (currency !== systemCurrency) {
+        const rates = await getRatesForDate(dateStr);
+        rate = getExchangeRate(currency, systemCurrency, rates);
+        convertedAmount = num * rate;
+      }
+
+      await updateExpense(id!, {
+        amount: num,
+        currency,
+        convertedAmount,
+        exchangeRate: rate,
+        categoryId,
+        note,
+        date: dateStr,
+      });
+      router.back();
+    } catch {
+      Alert.alert('Hata', 'Güncelleme yapılamadı.');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function handleDelete() {
-    Alert.alert('Harcamayı Sil', 'Bu harcamayı silmek istediğinizden emin misiniz?', [
-      { text: 'İptal', style: 'cancel' },
+  function handleDelete() {
+    Alert.alert('Harcamayı Sil', 'Bu harcamayı silmek istediğine emin misin?', [
+      { text: 'Vazgeç', style: 'cancel' },
       {
         text: 'Sil',
         style: 'destructive',
         onPress: async () => {
-          await deleteExpense(id);
+          await deleteExpense(id!);
           router.back();
         },
       },
     ]);
   }
 
-  const today = format(new Date(), 'yyyy-MM-dd');
-  const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
+  const CURRENCIES = ['₺', '$', '€', '£'];
 
-  function dateLabel(d: string) {
-    if (d === today) return 'Bugün';
-    if (d === yesterday) return 'Dün';
-    return format(new Date(d), 'd MMM yyyy', { locale: tr });
-  }
-
-  function changeDate(offset: number) {
-    const current = new Date(date);
-    current.setDate(current.getDate() + offset);
-    if (current > new Date()) return;
-    setDate(format(current, 'yyyy-MM-dd'));
-  }
+  const formattedDate = date.toLocaleDateString('tr-TR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
-            <Ionicons name="close" size={22} color={Colors.textSecondary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Harcamayı Düzenle</Text>
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={saving}
-            style={[styles.saveBtn, saving && { opacity: 0.5 }]}
-          >
-            <Text style={styles.saveBtnText}>Kaydet</Text>
-          </TouchableOpacity>
-        </View>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <StatusBar barStyle="light-content" />
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Harcamayı Düzenle</Text>
+        <TouchableOpacity onPress={handleDelete} style={styles.deleteBtn}>
+          <Ionicons name="trash-outline" size={20} color={Colors.danger} />
+        </TouchableOpacity>
+      </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.amountContainer}>
-            <Text style={styles.currencySymbol}>₺</Text>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {/* Amount Input Section */}
+        <View style={styles.card}>
+          <Text style={styles.label}>Tutar</Text>
+          <View style={styles.amountWrapper}>
+            <Text style={styles.currencySymbol}>{currency}</Text>
             <TextInput
               style={styles.amountInput}
               value={amount}
               onChangeText={setAmount}
               placeholder="0,00"
-              placeholderTextColor={Colors.textSecondary}
+              placeholderTextColor="rgba(255,255,255,0.3)"
               keyboardType="decimal-pad"
-              autoFocus
             />
           </View>
 
-          <View style={styles.dateRow}>
-            <TouchableOpacity onPress={() => changeDate(-1)} style={styles.dateArrow}>
-              <Ionicons name="chevron-back" size={20} color={Colors.textSecondary} />
-            </TouchableOpacity>
-            <Text style={styles.dateText}>{dateLabel(date)}</Text>
-            <TouchableOpacity
-              onPress={() => changeDate(1)}
-              style={styles.dateArrow}
-              disabled={date === today}
-            >
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={date === today ? Colors.border : Colors.textSecondary}
-              />
-            </TouchableOpacity>
+          <View style={styles.currencyGrid}>
+            {CURRENCIES.map((c) => (
+              <TouchableOpacity
+                key={c}
+                onPress={() => setCurrency(c)}
+                style={[styles.currencyBtn, currency === c && styles.currencyBtnActive]}
+              >
+                {currency === c && (
+                  <LinearGradient
+                    colors={Colors.primaryGradient as any}
+                    style={[StyleSheet.absoluteFill, { borderRadius: Radius.md }]}
+                  />
+                )}
+                <Text style={[styles.currencyText, currency === c && { color: '#fff' }]}>{c}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <Text style={styles.sectionLabel}>Kategori</Text>
-          <View style={styles.categoryGrid}>
-            {categories.map((cat) => {
-              const active = selectedCategory === cat.id;
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  onPress={() => setSelectedCategory(cat.id)}
-                  style={[
-                    styles.categoryItem,
-                    active && { borderColor: cat.color, backgroundColor: `${cat.color}22` },
-                  ]}
-                >
-                  <View style={[styles.categoryDot, { backgroundColor: active ? cat.color : Colors.border }]} />
-                  <Text style={[styles.categoryName, active && { color: cat.color }]} numberOfLines={1}>
-                    {cat.name}
+          {/* Kur önizlemesi */}
+          {currency !== systemCurrency && (
+            <View style={styles.rateBox}>
+              <Ionicons name="swap-horizontal-outline" size={14} color={Colors.primary} />
+              {rateLoading ? (
+                <ActivityIndicator size="small" color={Colors.primary} style={{ marginLeft: 6 }} />
+              ) : previewRate !== null && previewConverted !== null ? (
+                <Text style={styles.rateText}>
+                  1 {currency} ≈ {previewRate.toFixed(4)} {systemCurrency}
+                  {'   '}
+                  <Text style={styles.rateConverted}>
+                    = {previewConverted.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {systemCurrency}
                   </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <Text style={styles.sectionLabel}>Not (opsiyonel)</Text>
-          <TextInput
-            style={styles.noteInput}
-            value={note}
-            onChangeText={setNote}
-            placeholder="Açıklama ekle..."
-            placeholderTextColor={Colors.textSecondary}
-            multiline
-            maxLength={100}
-          />
-
-          {/* AI Yorumu */}
-          {aiComment !== '' && (
-            <View style={styles.aiSection}>
-              <View style={styles.aiSectionHeader}>
-                <Ionicons name="sparkles" size={14} color={Colors.primary} />
-                <Text style={styles.aiSectionTitle}>AI Yorumu</Text>
-              </View>
-              <Text style={styles.aiSectionText}>{aiComment}</Text>
+                </Text>
+              ) : (
+                <Text style={styles.rateText}>Tutar girerek kuru görüntüle</Text>
+              )}
             </View>
           )}
+        </View>
 
-          <TouchableOpacity onPress={handleDelete} style={styles.deleteBtn}>
-            <Ionicons name="trash-outline" size={18} color={Colors.danger} />
-            <Text style={styles.deleteBtnText}>Harcamayı Sil</Text>
+        {/* Date Selection */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Tarih</Text>
+          <TouchableOpacity style={styles.dateBtn} onPress={() => { setTempDate(date); setShowDatePicker(true); }}>
+            <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+            <Text style={styles.dateBtnText}>{formattedDate}</Text>
+            <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />
           </TouchableOpacity>
+        </View>
 
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {/* iOS: styled bottom sheet modal */}
+        {Platform.OS === 'ios' && (
+          <Modal
+            visible={showDatePicker}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowDatePicker(false)}
+          >
+            <View style={styles.dateModalOverlay}>
+              <View style={styles.dateModalSheet}>
+                <View style={styles.dateModalHandle} />
+                <View style={styles.dateModalHeader}>
+                  <TouchableOpacity onPress={() => setShowDatePicker(false)} style={styles.dateModalCancelBtn}>
+                    <Text style={styles.dateModalCancelText}>İptal</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.dateModalTitle}>Tarih Seç</Text>
+                  <TouchableOpacity
+                    onPress={() => { setDate(tempDate); setShowDatePicker(false); }}
+                    style={styles.dateModalConfirmBtn}
+                  >
+                    <Text style={styles.dateModalConfirmText}>Tamam</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={tempDate}
+                  mode="date"
+                  display="spinner"
+                  maximumDate={new Date()}
+                  textColor={Colors.textPrimary}
+                  accentColor={Colors.primary}
+                  style={styles.datePicker}
+                  onChange={(_event: unknown, selected?: Date) => {
+                    if (selected) setTempDate(selected);
+                  }}
+                />
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {/* Android: native dialog */}
+        {Platform.OS === 'android' && showDatePicker && (
+          <DateTimePicker
+            value={date}
+            mode="date"
+            display="default"
+            maximumDate={new Date()}
+            onChange={(_event: unknown, selected?: Date) => {
+              setShowDatePicker(false);
+              if (selected) setDate(selected);
+            }}
+          />
+        )}
+
+        {/* Category Selection */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Kategori</Text>
+          <View style={styles.categoryGrid}>
+            {categories.map((cat) => (
+              <TouchableOpacity
+                key={cat.id}
+                onPress={() => setCategoryId(cat.id)}
+                style={[
+                  styles.catBtn,
+                  categoryId === cat.id && { backgroundColor: cat.color + '20', borderColor: cat.color }
+                ]}
+              >
+                <Ionicons
+                  name={cat.icon as any}
+                  size={15}
+                  color={categoryId === cat.id ? cat.color : Colors.textSecondary}
+                />
+                <Text style={[styles.catName, categoryId === cat.id && { color: cat.color }]}>
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Note Input */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Not / Açıklama</Text>
+          <View style={styles.noteInputBox}>
+            <TextInput
+              style={styles.noteInput}
+              value={note}
+              onChangeText={setNote}
+              placeholder="Harcama detayını güncelle..."
+              placeholderTextColor={Colors.textSecondary}
+              multiline
+            />
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={loading}>
+          <LinearGradient
+            colors={Colors.primaryGradient as any}
+            style={styles.saveBtnInner}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Text style={styles.saveBtnText}>Değişiklikleri Kaydet</Text>
+                <Ionicons name="save-outline" size={20} color="#fff" />
+              </>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -203,60 +354,93 @@ export default function EditExpenseScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.lg
   },
-  closeBtn: {
-    width: 36, height: 36, borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceAlt, alignItems: 'center', justifyContent: 'center',
+  headerTitle: { color: Colors.textPrimary, fontSize: FontSize.lg, fontWeight: '800' },
+  backBtn: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center'
   },
-  headerTitle: { color: Colors.textPrimary, fontSize: FontSize.lg, fontWeight: '700' },
-  saveBtn: { backgroundColor: Colors.primary, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 2, borderRadius: Radius.full },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: FontSize.sm },
-  content: { padding: Spacing.md },
-  amountContainer: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md,
-  },
-  currencySymbol: { color: Colors.primary, fontSize: FontSize.xxxl, fontWeight: '700', marginRight: 4 },
-  amountInput: { color: Colors.textPrimary, fontSize: FontSize.xxxl, fontWeight: '700', minWidth: 120, textAlign: 'center' },
-  dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.lg, gap: Spacing.md },
-  dateArrow: { padding: Spacing.xs },
-  dateText: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '600', width: 120, textAlign: 'center' },
-  sectionLabel: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '600', marginBottom: Spacing.sm, textTransform: 'uppercase', letterSpacing: 0.8 },
-  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.lg },
-  categoryItem: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: Spacing.xs + 2, borderRadius: Radius.full, borderWidth: 1.5,
-    borderColor: Colors.border, backgroundColor: Colors.surface, gap: 6,
-  },
-  categoryDot: { width: 8, height: 8, borderRadius: 4 },
-  categoryName: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '500' },
-  noteInput: {
-    backgroundColor: Colors.surface, borderRadius: Radius.md, padding: Spacing.md,
-    color: Colors.textPrimary, fontSize: FontSize.md, borderWidth: 1, borderColor: Colors.border,
-    minHeight: 80, textAlignVertical: 'top', marginBottom: Spacing.lg,
-  },
-  aiSection: {
-    backgroundColor: Colors.surface, borderRadius: Radius.md, padding: Spacing.md,
-    borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing.lg,
-    borderLeftWidth: 3, borderLeftColor: Colors.primary,
-  },
-  aiSectionHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.sm,
-  },
-  aiSectionTitle: { color: Colors.primary, fontSize: FontSize.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
-  aiSectionText: { color: Colors.textPrimary, fontSize: FontSize.sm, lineHeight: 22 },
   deleteBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    marginTop: Spacing.sm, gap: Spacing.xs,
-    padding: Spacing.md, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.danger,
+    width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center'
   },
-  deleteBtnText: { color: Colors.danger, fontWeight: '600', fontSize: FontSize.md },
+  scroll: { padding: Spacing.md, paddingBottom: 100 },
+  card: {
+    backgroundColor: Colors.surface, borderRadius: Radius.xl, padding: Spacing.md,
+    marginBottom: Spacing.xl, borderWidth: 1, borderColor: Colors.border
+  },
+  label: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },
+  amountWrapper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  currencySymbol: { color: Colors.textPrimary, fontSize: 28, fontWeight: '900', marginRight: 6, opacity: 0.8 },
+  amountInput: { color: Colors.textPrimary, fontSize: 36, fontWeight: '900', textAlign: 'center', minWidth: 120 },
+
+  currencyGrid: { flexDirection: 'row', gap: 10 },
+  currencyBtn: {
+    flex: 1, height: 50, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.surfaceAlt, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden'
+  },
+  currencyBtnActive: { borderColor: Colors.primary },
+  currencyText: { fontSize: FontSize.md, fontWeight: '800', color: Colors.textSecondary },
+
+  section: { marginBottom: Spacing.xl },
+  sectionTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '800', marginBottom: 16 },
+
+  dateBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surface, borderRadius: Radius.lg,
+    padding: 16, borderWidth: 1, borderColor: Colors.border,
+  },
+  dateBtnText: { flex: 1, color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '600' },
+
+  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  catBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10,
+    borderRadius: Radius.lg, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+    width: '48%',
+  },
+  catName: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '700', flex: 1 },
+
+  noteInputBox: {
+    backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: 16,
+    borderWidth: 1, borderColor: Colors.border, height: 120
+  },
+  noteInput: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '500', textAlignVertical: 'top' },
+
+  saveBtn: { marginTop: Spacing.lg, height: 60, borderRadius: Radius.xl, overflow: 'hidden', shadowColor: Colors.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 12 },
+  saveBtnInner: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  saveBtnText: { color: '#fff', fontSize: FontSize.md, fontWeight: '800' },
+
+  dateModalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end',
+  },
+  dateModalSheet: {
+    backgroundColor: Colors.surface, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
+    paddingBottom: 40, borderWidth: 1, borderColor: Colors.border,
+  },
+  dateModalHandle: {
+    width: 40, height: 4, backgroundColor: Colors.border, borderRadius: 2,
+    alignSelf: 'center', marginTop: 12, marginBottom: 4,
+  },
+  dateModalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
+    borderBottomWidth: 1, borderBottomColor: Colors.border,
+  },
+  dateModalTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '800' },
+  dateModalCancelBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+  dateModalCancelText: { color: Colors.textSecondary, fontSize: FontSize.md, fontWeight: '600' },
+  dateModalConfirmBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+  dateModalConfirmText: { color: Colors.primary, fontSize: FontSize.md, fontWeight: '800' },
+  datePicker: { alignSelf: 'center', width: '100%' },
+
+  rateBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 16, backgroundColor: Colors.primary + '15',
+    borderRadius: Radius.md, paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: Colors.primary + '30',
+  },
+  rateText: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '600', flex: 1 },
+  rateConverted: { color: Colors.primary, fontWeight: '800' },
 });

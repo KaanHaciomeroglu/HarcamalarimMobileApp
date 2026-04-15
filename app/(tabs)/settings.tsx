@@ -5,16 +5,24 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
-  Alert,
   Switch,
+  ActivityIndicator,
+  Modal,
+  StatusBar,
+  RefreshControl,
 } from 'react-native';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, Radius, FontSize } from '../../constants/theme';
-import { getSettings, saveSettings, clearAllData } from '../../store/storage';
+import { getSettings, saveSettings, clearAllData, getExpenses } from '../../store/storage';
 import { Category } from '../../constants/categories';
+import { recalculateAllExpenses } from '../../services/exchangeRate';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+type ModalType = 'currency' | 'budget' | 'clearData' | null;
 
 export default function SettingsScreen() {
   const [currency, setCurrency] = useState('₺');
@@ -22,6 +30,10 @@ export default function SettingsScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [budgetEnabled, setBudgetEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [modalType, setModalType] = useState<ModalType>(null);
+  const [pendingCurrency, setPendingCurrency] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const s = await getSettings();
@@ -33,181 +45,328 @@ export default function SettingsScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  async function handleSaveBudget() {
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
+  // ── Para birimi ───────────────────────────────────────────
+  function handleCurrencyClick(newCur: string) {
+    if (newCur === currency || saving) return;
+    setPendingCurrency(newCur);
+    setModalType('currency');
+  }
+
+  async function confirmCurrencyChange() {
+    if (!pendingCurrency) return;
+    setModalType(null);
+    setSaving(true);
+    try {
+      const allExpenses = await getExpenses();
+      const updatedExpenses = await recalculateAllExpenses(allExpenses, pendingCurrency);
+      await AsyncStorage.setItem('expenses', JSON.stringify(updatedExpenses));
+      await saveSettings({ currency: pendingCurrency });
+      setCurrency(pendingCurrency);
+      setPendingCurrency(null);
+    } catch {
+      // sessiz hata
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Bütçe ─────────────────────────────────────────────────
+  async function handleToggleBudget(val: boolean) {
+    setBudgetEnabled(val);
+    if (!val) {
+      setBudgetText('');
+      await saveSettings({ monthlyBudget: 0 });
+    }
+  }
+
+  async function confirmBudgetSave() {
+    setModalType(null);
     setSaving(true);
     const parsed = parseFloat(budgetText.replace(',', '.'));
     await saveSettings({
       monthlyBudget: budgetEnabled && !isNaN(parsed) && parsed > 0 ? parsed : 0,
-      currency,
     });
     setSaving(false);
-    Alert.alert('Kaydedildi', 'Ayarlar güncellendi.');
   }
 
-  function handleToggleBudget(val: boolean) {
-    setBudgetEnabled(val);
-    if (!val) setBudgetText('');
+  // ── Veri temizle ──────────────────────────────────────────
+  async function confirmClearData() {
+    setModalType(null);
+    await clearAllData();
+    await load();
   }
 
   const CURRENCIES = ['₺', '$', '€', '£'];
 
-  function handleClearData() {
-    Alert.alert(
-      'Tüm Verileri Sil',
-      'Tüm harcamalar ve ayarlar silinecek. Bu işlem geri alınamaz!',
-      [
-        { text: 'İptal', style: 'cancel' },
-        {
-          text: 'Sil',
-          style: 'destructive',
-          onPress: async () => {
-            await clearAllData();
-            await load();
-            Alert.alert('Silindi', 'Tüm veriler temizlendi.');
-          },
-        },
-      ]
-    );
-  }
+  // ── Modal içerikleri ──────────────────────────────────────
+  const modalConfig = {
+    currency: {
+      icon: 'swap-horizontal' as const,
+      iconColor: Colors.primary,
+      iconBg: Colors.primary + '20',
+      title: 'Döviz Çevrimi Yapılsın mı?',
+      desc: (
+        <Text style={styles.modalDesc}>
+          Tüm harcamaların {currency} biriminden{' '}
+          <Text style={{ color: Colors.primary, fontWeight: '800' }}>{pendingCurrency}</Text>{' '}
+          birimine çevrilecek. Bu işlem geri alınamaz.
+        </Text>
+      ),
+      confirmText: 'Çevir ve Kaydet',
+      confirmColor: Colors.primaryGradient as any,
+      onConfirm: confirmCurrencyChange,
+    },
+    budget: {
+      icon: 'wallet-outline' as const,
+      iconColor: Colors.primary,
+      iconBg: Colors.primary + '20',
+      title: 'Bütçe Güncellensin mi?',
+      desc: (
+        <Text style={styles.modalDesc}>
+          Aylık bütçe hedefin{' '}
+          <Text style={{ color: Colors.primary, fontWeight: '800' }}>
+            {currency}{parseFloat(budgetText.replace(',', '.') || '0').toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+          </Text>{' '}
+          olarak kaydedilecek.
+        </Text>
+      ),
+      confirmText: 'Kaydet',
+      confirmColor: Colors.primaryGradient as any,
+      onConfirm: confirmBudgetSave,
+    },
+    clearData: {
+      icon: 'trash-outline' as const,
+      iconColor: Colors.danger,
+      iconBg: Colors.danger + '20',
+      title: 'Tüm Veriler Silinsin mi?',
+      desc: (
+        <Text style={styles.modalDesc}>
+          Tüm harcamalar ve ayarlar kalıcı olarak silinecek.{' '}
+          <Text style={{ color: Colors.danger, fontWeight: '800' }}>Bu işlem geri alınamaz.</Text>
+        </Text>
+      ),
+      confirmText: 'Evet, Sil',
+      confirmColor: Colors.dangerGradient as any,
+      onConfirm: confirmClearData,
+    },
+  };
+
+  const activeModal = modalType ? modalConfig[modalType] : null;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>Ayarlar</Text>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <StatusBar barStyle="light-content" />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+      >
+        <Text style={styles.headerTitle}>Ayarlar</Text>
 
-        {/* Currency */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Para Birimi</Text>
-          <View style={styles.currencyRow}>
+        {/* Para Birimi */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Sistem Para Birimi</Text>
+          <Text style={styles.sectionDesc}>Tüm raporlar seçilen birime göre anlık çevrilir.</Text>
+          <View style={styles.currencyGrid}>
             {CURRENCIES.map((c) => (
               <TouchableOpacity
                 key={c}
-                onPress={() => setCurrency(c)}
-                style={[
-                  styles.currencyBtn,
-                  currency === c && { backgroundColor: Colors.primaryMuted, borderColor: Colors.primary },
-                ]}
+                onPress={() => handleCurrencyClick(c)}
+                disabled={saving}
+                style={[styles.currencyBtn, currency === c && styles.currencyBtnActive]}
               >
-                <Text style={[styles.currencyText, currency === c && { color: Colors.primary }]}>
-                  {c}
-                </Text>
+                {currency === c && (
+                  <LinearGradient
+                    colors={Colors.primaryGradient as any}
+                    style={StyleSheet.absoluteFill}
+                    borderRadius={Radius.md}
+                  />
+                )}
+                <Text style={[styles.currencyText, currency === c && { color: '#fff' }]}>{c}</Text>
+                {saving && pendingCurrency === c && (
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                )}
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        {/* Monthly Budget */}
-        <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.cardTitle}>Aylık Bütçe Hedefi</Text>
+        {/* Bütçe */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Aylık Bütçe Hedefi</Text>
             <Switch
               value={budgetEnabled}
               onValueChange={handleToggleBudget}
-              trackColor={{ false: Colors.border, true: Colors.primary + '66' }}
+              trackColor={{ false: Colors.surfaceAlt, true: Colors.primary + '80' }}
               thumbColor={budgetEnabled ? Colors.primary : Colors.textSecondary}
             />
           </View>
           {budgetEnabled && (
-            <View style={styles.budgetInputRow}>
-              <Text style={styles.budgetCurrency}>{currency}</Text>
-              <TextInput
-                style={styles.budgetInput}
-                value={budgetText}
-                onChangeText={setBudgetText}
-                placeholder="0,00"
-                placeholderTextColor={Colors.textSecondary}
-                keyboardType="decimal-pad"
-              />
-            </View>
+            <>
+              <View style={styles.inputBox}>
+                <Text style={styles.inputCurrency}>{currency}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={budgetText}
+                  onChangeText={setBudgetText}
+                  placeholder="0,00"
+                  placeholderTextColor={Colors.textSecondary}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <TouchableOpacity
+                style={styles.primaryBtn}
+                onPress={() => setModalType('budget')}
+                disabled={saving}
+              >
+                <LinearGradient
+                  colors={Colors.primaryGradient as any}
+                  style={styles.btnGradient}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                >
+                  {saving
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={styles.btnText}>Bütçeyi Güncelle</Text>
+                  }
+                </LinearGradient>
+              </TouchableOpacity>
+            </>
           )}
-          <TouchableOpacity
-            style={[styles.saveBtn, saving && { opacity: 0.5 }]}
-            onPress={handleSaveBudget}
-            disabled={saving}
-          >
-            <Text style={styles.saveBtnText}>Kaydet</Text>
-          </TouchableOpacity>
         </View>
 
-        {/* Categories Info */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Kategoriler</Text>
-          <Text style={styles.cardDesc}>
-            Harcama eklerken bu kategorileri kullanabilirsin.
-          </Text>
-          <View style={styles.catList}>
+        {/* Kategoriler */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Kategorilerim</Text>
+          <View style={styles.catGrid}>
             {categories.map((cat) => (
-              <View key={cat.id} style={styles.catItem}>
-                <View style={[styles.catDot, { backgroundColor: cat.color }]} />
+              <View key={cat.id} style={styles.catBadge}>
+                <View style={[styles.catIconBox, { backgroundColor: cat.color + '20' }]}>
+                  <Ionicons name={cat.icon as any} size={16} color={cat.color} />
+                </View>
                 <Text style={styles.catName}>{cat.name}</Text>
               </View>
             ))}
           </View>
         </View>
 
-        {/* Danger Zone */}
-        <View style={[styles.card, styles.dangerCard]}>
-          <Text style={[styles.cardTitle, { color: Colors.danger }]}>Tehlikeli Bölge</Text>
-          <TouchableOpacity style={styles.deleteBtn} onPress={handleClearData}>
+        {/* Veri Yönetimi */}
+        <View style={[styles.section, styles.dangerSection]}>
+          <Text style={styles.dangerTitle}>Veri Yönetimi</Text>
+          <TouchableOpacity style={styles.dangerBtn} onPress={() => setModalType('clearData')}>
             <Ionicons name="trash-outline" size={18} color={Colors.danger} />
-            <Text style={styles.deleteBtnText}>Tüm Verileri Sil</Text>
+            <Text style={styles.dangerBtnText}>Tüm Verileri Temizle</Text>
           </TouchableOpacity>
         </View>
 
-        {/* App Info */}
-        <View style={styles.appInfo}>
-          <Text style={styles.appInfoText}>Harcamalarım v1.0.0</Text>
-          <Text style={styles.appInfoText}>Tüm veriler cihazında saklanır</Text>
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Harcamalarım v2.0.0</Text>
         </View>
       </ScrollView>
+
+      {/* Unified Modal */}
+      <Modal visible={!!activeModal} transparent animationType="fade" onRequestClose={() => setModalType(null)}>
+        <View style={styles.modalOverlay}>
+          {activeModal && (
+            <View style={styles.modalContent}>
+              <View style={[styles.modalIconBox, { backgroundColor: activeModal.iconBg }]}>
+                <Ionicons name={activeModal.icon} size={32} color={activeModal.iconColor} />
+              </View>
+              <Text style={styles.modalTitle}>{activeModal.title}</Text>
+              {activeModal.desc}
+              <View style={styles.modalButtons}>
+                <TouchableOpacity style={styles.modalCancel} onPress={() => setModalType(null)}>
+                  <Text style={styles.modalCancelText}>Vazgeç</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalConfirm} onPress={activeModal.onConfirm}>
+                  <LinearGradient colors={activeModal.confirmColor} style={styles.modalBtnGradient}>
+                    <Text style={styles.modalConfirmText}>{activeModal.confirmText}</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
-  scroll: { padding: Spacing.md, paddingBottom: 40 },
-  title: { color: Colors.textPrimary, fontSize: FontSize.xxl, fontWeight: '800', marginBottom: Spacing.md },
-  card: {
-    backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.md,
-    marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.border,
+  scroll: { padding: Spacing.md, paddingBottom: 60 },
+  headerTitle: { color: Colors.textPrimary, fontSize: FontSize.xxl, fontWeight: '900', marginBottom: Spacing.xl },
+
+  section: {
+    backgroundColor: Colors.surface, padding: Spacing.lg, borderRadius: Radius.xl,
+    marginBottom: Spacing.lg, borderWidth: 1, borderColor: Colors.border,
   },
-  dangerCard: { borderColor: Colors.danger + '44' },
-  cardTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm },
-  cardTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '700', marginBottom: Spacing.sm },
-  cardDesc: { color: Colors.textSecondary, fontSize: FontSize.sm, marginBottom: Spacing.sm },
-  currencyRow: { flexDirection: 'row', gap: Spacing.sm },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
+  sectionTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '800' },
+  sectionDesc: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '600', marginBottom: Spacing.lg },
+
+  currencyGrid: { flexDirection: 'row', gap: Spacing.sm },
   currencyBtn: {
-    width: 52, height: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surfaceAlt,
+    flex: 1, height: 50, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.surfaceAlt, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden',
   },
-  currencyText: { color: Colors.textPrimary, fontSize: FontSize.lg, fontWeight: '700' },
-  budgetInputRow: {
+  currencyBtnActive: { borderColor: Colors.primary },
+  currencyText: { fontSize: FontSize.lg, fontWeight: '900', color: Colors.textPrimary },
+
+  inputBox: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surfaceAlt,
-    borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing.sm, gap: 4,
+    borderRadius: Radius.lg, paddingHorizontal: 16, height: 56, marginBottom: Spacing.md,
+    borderWidth: 1, borderColor: Colors.border,
   },
-  budgetCurrency: { color: Colors.primary, fontSize: FontSize.xl, fontWeight: '700' },
-  budgetInput: { flex: 1, color: Colors.textPrimary, fontSize: FontSize.xl, fontWeight: '600' },
-  saveBtn: {
-    backgroundColor: Colors.primary, borderRadius: Radius.md, padding: Spacing.sm + 2,
-    alignItems: 'center',
+  inputCurrency: { color: Colors.primary, fontSize: FontSize.lg, fontWeight: '800', marginRight: 8 },
+  input: { flex: 1, color: Colors.textPrimary, fontSize: FontSize.lg, fontWeight: '700' },
+
+  primaryBtn: { height: 54, borderRadius: Radius.lg, overflow: 'hidden' },
+  btnGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  btnText: { color: '#fff', fontSize: FontSize.md, fontWeight: '800' },
+
+  catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: Spacing.sm },
+  catBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.surfaceAlt, padding: Spacing.sm,
+    borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border,
+    width: '48%',
   },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: FontSize.sm },
-  catList: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs + 2 },
-  catItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: Colors.surfaceAlt, borderRadius: Radius.full,
-    paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs,
+  catIconBox: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  catName: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '700', flex: 1 },
+
+  dangerSection: { borderColor: Colors.danger + '33' },
+  dangerTitle: { color: Colors.danger, fontSize: FontSize.md, fontWeight: '800', marginBottom: Spacing.md },
+  dangerBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 50, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.danger + '66',
   },
-  catDot: { width: 8, height: 8, borderRadius: 4 },
-  catName: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '500' },
-  deleteBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.xs,
-    padding: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.danger + '66',
-    justifyContent: 'center',
+  dangerBtnText: { color: Colors.danger, fontWeight: '700' },
+
+  footer: { alignItems: 'center', marginTop: Spacing.xl },
+  footerText: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '600' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: Spacing.xl },
+  modalContent: {
+    backgroundColor: Colors.surface, borderRadius: Radius.xl, padding: Spacing.xl,
+    alignItems: 'center', borderWidth: 1, borderColor: Colors.border,
   },
-  deleteBtnText: { color: Colors.danger, fontWeight: '600', fontSize: FontSize.sm },
-  appInfo: { alignItems: 'center', gap: 4, marginTop: Spacing.sm },
-  appInfoText: { color: Colors.textSecondary, fontSize: FontSize.xs },
+  modalIconBox: {
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+  },
+  modalTitle: { color: Colors.textPrimary, fontSize: FontSize.lg, fontWeight: '900', textAlign: 'center', marginBottom: 12 },
+  modalDesc: { color: Colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  modalButtons: { flexDirection: 'row', gap: 12, width: '100%' },
+  modalCancel: { flex: 1, height: 50, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceAlt },
+  modalCancelText: { color: Colors.textSecondary, fontWeight: '700' },
+  modalConfirm: { flex: 1.5, height: 50, borderRadius: Radius.md, overflow: 'hidden' },
+  modalBtnGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  modalConfirmText: { color: '#fff', fontWeight: '800' },
 });

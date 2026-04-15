@@ -5,11 +5,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
+  StatusBar,
 } from 'react-native';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { Colors, Spacing, Radius, FontSize } from '../../constants/theme';
@@ -39,245 +41,264 @@ export default function DashboardScreen() {
     setRefreshing(false);
   };
 
-  const currentMonth = format(new Date(), 'yyyy-MM');
+  const now = new Date();
+const thisMonth = now.getMonth();
+  const thisYear = now.getFullYear();
 
-  const monthExpenses = expenses.filter((e) => e.date.startsWith(currentMonth));
-  const totalMonth = monthExpenses.reduce((s, e) => s + e.amount, 0);
+  const monthExps = expenses.filter(e => {
+    const d = new Date(e.date);
+    return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+  });
 
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const todayExpenses = expenses.filter((e) => e.date === todayStr);
-  const totalToday = todayExpenses.reduce((s, e) => s + e.amount, 0);
-
-  // Category totals
-  const catTotals = categories.map((cat) => ({
-    cat,
-    total: monthExpenses
-      .filter((e) => e.categoryId === cat.id)
-      .reduce((s, e) => s + e.amount, 0),
-  })).filter((x) => x.total > 0)
-    .sort((a, b) => b.total - a.total);
-
-  const recent = expenses.slice(0, 5);
-
-  const budgetUsed = budget > 0 ? Math.min(totalMonth / budget, 1) : 0;
+  const totalMonth = monthExps.reduce((s, e) => s + (e.convertedAmount ?? e.amount), 0);
+const budgetUsed = budget > 0 ? Math.min(totalMonth / budget, 1) : 0;
   const budgetOver = budget > 0 && totalMonth > budget;
 
-  function fmt(n: number) {
-    return n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
+  const catTotals = categories.map((cat) => {
+    const total = monthExps
+      .filter((e) => e.categoryId === cat.id)
+      .reduce((s, e) => s + (e.convertedAmount ?? e.amount), 0);
+    return { ...cat, total };
+  }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
 
-  function getCatById(id: string) {
-    return categories.find((c) => c.id === id);
+  const recent = [...expenses]
+    .sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    })
+    .slice(0, 5);
+
+  function fmt(n: number) {
+    return n.toLocaleString('tr-TR', { minimumFractionDigits: 2 });
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <StatusBar barStyle="light-content" />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
       >
-        {/* Header */}
+        {/* Modern Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Merhaba!</Text>
-            <Text style={styles.monthLabel}>
-              {format(new Date(), 'MMMM yyyy', { locale: tr })}
-            </Text>
+            <Text style={styles.welcomeText}>Hoş Geldin 👋</Text>
+            <Text style={styles.headerTitle}>Harcamalarım</Text>
           </View>
-          <TouchableOpacity
-            style={styles.addBtn}
-            onPress={() => router.push('/add-expense')}
-          >
-            <Ionicons name="add" size={26} color="#fff" />
-          </TouchableOpacity>
         </View>
 
-        {/* Monthly Total Card */}
-        <View style={styles.totalCard}>
-          <Text style={styles.totalLabel}>Bu Ay Toplam</Text>
-          <Text style={styles.totalAmount}>
-            {currency}{fmt(totalMonth)}
-          </Text>
-
-          {budget > 0 && (
-            <View style={styles.budgetSection}>
-              <View style={styles.budgetBarBg}>
-                <View
-                  style={[
-                    styles.budgetBarFill,
-                    {
-                      width: `${budgetUsed * 100}%` as any,
-                      backgroundColor: budgetOver ? Colors.danger : Colors.success,
-                    },
-                  ]}
-                />
-              </View>
-              <View style={styles.budgetLabels}>
-                <Text style={styles.budgetUsed}>
-                  {currency}{fmt(totalMonth)} harcandı
-                </Text>
-                <Text style={[styles.budgetRemain, { color: budgetOver ? Colors.danger : Colors.success }]}>
-                  {budgetOver
-                    ? `${currency}${fmt(totalMonth - budget)} aşıldı`
-                    : `${currency}${fmt(budget - totalMonth)} kaldı`}
-                </Text>
-              </View>
+        {/* Hero Gradient Card */}
+        <LinearGradient
+          colors={Colors.primaryGradient as any}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroGlow} />
+          <View style={styles.heroTop}>
+            <Text style={styles.heroLabel}>Aylık Toplam Harcama</Text>
+            <View style={styles.heroBadge}>
+              <Text style={styles.heroBadgeText}>{format(now, 'MMMM yyyy', { locale: tr })}</Text>
             </View>
-          )}
-        </View>
-
-        {/* Today Card */}
-        <View style={styles.todayCard}>
-          <View>
-            <Text style={styles.todayLabel}>Bugün</Text>
-            <Text style={styles.todayAmount}>{currency}{fmt(totalToday)}</Text>
           </View>
-          <View style={styles.todayCountBadge}>
-            <Text style={styles.todayCount}>{todayExpenses.length} işlem</Text>
-          </View>
-        </View>
+          <Text style={styles.heroAmount}>{currency}{fmt(totalMonth)}</Text>
 
-        {/* Category Breakdown */}
-        {catTotals.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Kategoriler</Text>
-            {catTotals.map(({ cat, total }) => {
-              const pct = totalMonth > 0 ? total / totalMonth : 0;
-              return (
-                <View key={cat.id} style={styles.catRow}>
-                  <View style={[styles.catDot, { backgroundColor: cat.color }]} />
-                  <View style={styles.catInfo}>
-                    <View style={styles.catRowTop}>
-                      <Text style={styles.catName}>{cat.name}</Text>
-                      <Text style={styles.catAmount}>{currency}{fmt(total)}</Text>
-                    </View>
-                    <View style={styles.catBarBg}>
-                      <View
-                        style={[
-                          styles.catBarFill,
-                          { width: `${pct * 100}%` as any, backgroundColor: cat.color },
-                        ]}
-                      />
-                    </View>
-                  </View>
-                </View>
-              );
-            })}
+        </LinearGradient>
+
+        {/* Budget Progress Section */}
+        {budget > 0 && (
+          <View style={styles.budgetCard}>
+            <View style={styles.budgetHeader}>
+              <Text style={styles.budgetTitle}>Bütçe Limitim</Text>
+              <Text style={[styles.budgetTotal, budgetOver && { color: Colors.danger }]}>
+                {currency}{fmt(totalMonth)} / {currency}{fmt(budget)}
+              </Text>
+            </View>
+            <View style={styles.progressBg}>
+              <LinearGradient
+                colors={(budgetOver ? Colors.dangerGradient : Colors.successGradient) as any}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.progressFill, { width: `${budgetUsed * 100}%` }]}
+              />
+            </View>
+            <Text style={styles.progressLabel}>
+              {budgetOver
+                ? `${currency}${fmt(totalMonth - budget)} bütçe aşıldı`
+                : `%${Math.round(budgetUsed * 100)} kullanım • ${currency}${fmt(budget - totalMonth)} kaldı`}
+            </Text>
           </View>
         )}
 
-        {/* Recent Expenses */}
-        {recent.length > 0 && (
+        {/* Categories Grid View */}
+        {catTotals.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Son Harcamalar</Text>
-              <TouchableOpacity onPress={() => router.push('/expenses' as any)}>
-                <Text style={styles.seeAll}>Tümünü Gör</Text>
-              </TouchableOpacity>
+            <Text style={styles.sectionTitle}>Harcama Dağılımı</Text>
+            <View style={styles.catGrid}>
+              {catTotals.map((cat) => (
+                <View key={cat.id} style={styles.catCard}>
+                  <View style={[styles.catIconBox, { backgroundColor: cat.color + '20' }]}>
+                    <Ionicons name={cat.icon as any} size={18} color={cat.color} />
+                  </View>
+                  <View style={styles.catCardText}>
+                    <Text style={styles.catCardLabel} numberOfLines={1}>{cat.name}</Text>
+                    <Text style={styles.catCardValue}>{currency}{fmt(cat.total)}</Text>
+                  </View>
+                </View>
+              ))}
             </View>
-            {recent.map((exp) => {
-              const cat = getCatById(exp.categoryId);
+          </View>
+        )}
+
+        {/* Recent Activity List */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Son İşlemler</Text>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/expenses')}>
+              <Text style={styles.seeAllText}>Tümü</Text>
+            </TouchableOpacity>
+          </View>
+
+          {recent.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="card-outline" size={48} color={Colors.border} />
+              <Text style={styles.emptyText}>Henüz bir harcama yok</Text>
+            </View>
+          ) : (
+            recent.map((exp) => {
+              const cat = categories.find(c => c.id === exp.categoryId);
               return (
                 <TouchableOpacity
                   key={exp.id}
-                  style={styles.expRow}
+                  style={styles.expCard}
                   onPress={() => router.push({ pathname: '/edit-expense', params: { id: exp.id } })}
                 >
-                  <View style={[styles.expIcon, { backgroundColor: `${cat?.color ?? Colors.border}22` }]}>
-                    <View style={[styles.expDot, { backgroundColor: cat?.color ?? Colors.border }]} />
+                  <View style={[styles.expIconBox, { backgroundColor: (cat?.color ?? Colors.border) + '15' }]}>
+                    <Ionicons name={(cat?.icon ?? 'ellipsis-horizontal') as any} size={20} color={cat?.color ?? Colors.border} />
                   </View>
-                  <View style={styles.expInfo}>
-                    <Text style={styles.expCat}>{cat?.name ?? 'Diğer'}</Text>
-                    {exp.note ? <Text style={styles.expNote} numberOfLines={1}>{exp.note}</Text> : null}
+                  <View style={styles.expMain}>
+                    <Text style={styles.expCatName}>{cat?.name ?? 'Diğer'}</Text>
+                    <Text style={styles.expNote} numberOfLines={1}>{exp.note || 'Genel harcama'}</Text>
                   </View>
-                  <View style={styles.expRight}>
-                    <Text style={styles.expAmount}>{currency}{fmt(exp.amount)}</Text>
-                    <Text style={styles.expDate}>
-                      {exp.date === todayStr ? 'Bugün' : format(new Date(exp.date), 'd MMM', { locale: tr })}
-                    </Text>
+                  <View style={styles.expEnd}>
+                    <Text style={styles.expValue}>{currency}{fmt(exp.convertedAmount ?? exp.amount)}</Text>
+                    {exp.currency !== currency && (
+                      <Text style={styles.expOriginalValue}>{exp.currency}{fmt(exp.amount)}</Text>
+                    )}
                   </View>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-
-        {expenses.length === 0 && (
-          <View style={styles.empty}>
-            <Ionicons name="receipt-outline" size={56} color={Colors.border} />
-            <Text style={styles.emptyTitle}>Henüz harcama yok</Text>
-            <Text style={styles.emptyDesc}>İlk harcamanı eklemek için + butonuna dokun</Text>
-          </View>
-        )}
+              )
+            })
+          )}
+        </View>
       </ScrollView>
+
+      {/* Modern Floating Action Button */}
+      <TouchableOpacity
+        style={styles.fab}
+        activeOpacity={0.9}
+        onPress={() => router.push('/add-expense')}
+      >
+        <LinearGradient
+          colors={Colors.primaryGradient as any}
+          style={styles.fabInner}
+        >
+          <Ionicons name="add" size={32} color="#fff" />
+        </LinearGradient>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
-  scroll: { padding: Spacing.md, paddingBottom: 32 },
+  scroll: { padding: Spacing.md, paddingBottom: 100 },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: Spacing.xl, marginTop: Spacing.sm
   },
-  greeting: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '500' },
-  monthLabel: { color: Colors.textPrimary, fontSize: FontSize.xl, fontWeight: '700', textTransform: 'capitalize' },
-  addBtn: {
-    width: 46, height: 46, borderRadius: Radius.full,
-    backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
+  welcomeText: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '600', marginBottom: 2 },
+  headerTitle: { color: Colors.textPrimary, fontSize: FontSize.xxl, fontWeight: '900', letterSpacing: -0.5 },
+  notifBtn: {
+    width: 48, height: 48, borderRadius: Radius.md, backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center',
   },
-  totalCard: {
-    backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.lg,
-    marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.border,
+  heroCard: {
+    padding: Spacing.md, borderRadius: Radius.xl, marginBottom: Spacing.xl,
+    overflow: 'hidden', position: 'relative',
+    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 10,
   },
-  totalLabel: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '500', marginBottom: 4 },
-  totalAmount: { color: Colors.textPrimary, fontSize: FontSize.xxxl, fontWeight: '800' },
-  budgetSection: { marginTop: Spacing.md },
-  budgetBarBg: { height: 6, backgroundColor: Colors.surfaceAlt, borderRadius: 3, overflow: 'hidden' },
-  budgetBarFill: { height: '100%', borderRadius: 3 },
-  budgetLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  budgetUsed: { color: Colors.textSecondary, fontSize: FontSize.xs },
-  budgetRemain: { fontSize: FontSize.xs, fontWeight: '600' },
-  todayCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: Colors.primaryMuted, borderRadius: Radius.md, padding: Spacing.md,
-    marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.primary + '40',
+  heroGlow: {
+    position: 'absolute', top: -40, right: -40, width: 160, height: 160,
+    backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 80,
   },
-  todayLabel: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '500', marginBottom: 2 },
-  todayAmount: { color: Colors.textPrimary, fontSize: FontSize.lg, fontWeight: '700' },
-  todayCountBadge: {
-    backgroundColor: Colors.primary + '30', paddingHorizontal: Spacing.sm,
-    paddingVertical: 4, borderRadius: Radius.full,
+  heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  heroLabel: { color: 'rgba(255,255,255,0.7)', fontSize: FontSize.xs, fontWeight: '600' },
+  heroAmount: { color: '#fff', fontSize: FontSize.xxl, fontWeight: '900', letterSpacing: -1 },
+  heroBottom: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)'
   },
-  todayCount: { color: Colors.primary, fontSize: FontSize.xs, fontWeight: '600' },
-  section: {
-    backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.md,
-    marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.border,
+  heroStat: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  heroStatText: { color: 'rgba(255,255,255,0.9)', fontSize: FontSize.sm, fontWeight: '700' },
+  heroBadge: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: Radius.full },
+  heroBadgeText: { color: '#fff', fontSize: FontSize.xs, fontWeight: '800' },
+
+  budgetCard: {
+    backgroundColor: Colors.surface, padding: Spacing.lg, borderRadius: Radius.xl,
+    marginBottom: Spacing.xl, borderWidth: 1, borderColor: Colors.border,
   },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm },
-  sectionTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '700', marginBottom: Spacing.sm },
-  seeAll: { color: Colors.primary, fontSize: FontSize.sm, fontWeight: '600' },
-  catRow: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.sm, gap: Spacing.sm },
-  catDot: { width: 10, height: 10, borderRadius: 5, marginTop: 2 },
-  catInfo: { flex: 1 },
-  catRowTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  catName: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '500' },
-  catAmount: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '700' },
-  catBarBg: { height: 4, backgroundColor: Colors.surfaceAlt, borderRadius: 2, overflow: 'hidden' },
-  catBarFill: { height: '100%', borderRadius: 2 },
-  expRow: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.sm,
-    borderBottomWidth: 1, borderBottomColor: Colors.border, gap: Spacing.sm,
+  budgetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  budgetTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '800' },
+  budgetTotal: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '700' },
+  progressBg: { height: 12, backgroundColor: Colors.surfaceAlt, borderRadius: 6, overflow: 'hidden', marginBottom: 12 },
+  progressFill: { height: '100%', borderRadius: 6 },
+  progressLabel: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '600' },
+
+  section: { marginBottom: Spacing.xl },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
+  sectionTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '900', letterSpacing: 0.5 },
+  seeAllText: { color: Colors.primary, fontSize: FontSize.sm, fontWeight: '700' },
+
+  catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: Spacing.md },
+  catCard: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    backgroundColor: Colors.surface, padding: Spacing.sm, borderRadius: Radius.lg,
+    width: '48%', borderWidth: 1, borderColor: Colors.border,
   },
-  expIcon: { width: 38, height: 38, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
-  expDot: { width: 10, height: 10, borderRadius: 5 },
-  expInfo: { flex: 1 },
-  expCat: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '600' },
-  expNote: { color: Colors.textSecondary, fontSize: FontSize.xs, marginTop: 1 },
-  expRight: { alignItems: 'flex-end' },
-  expAmount: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '700' },
-  expDate: { color: Colors.textSecondary, fontSize: FontSize.xs, marginTop: 1 },
-  empty: { alignItems: 'center', paddingVertical: 60, gap: Spacing.sm },
-  emptyTitle: { color: Colors.textPrimary, fontSize: FontSize.lg, fontWeight: '700' },
-  emptyDesc: { color: Colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center' },
+  catIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  catCardText: { flex: 1 },
+  catCardLabel: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '700', marginBottom: 2 },
+  catCardValue: { color: Colors.textPrimary, fontSize: FontSize.sm, fontWeight: '800' },
+
+  expCard: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,
+    padding: Spacing.md, borderRadius: Radius.lg, marginBottom: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  expIconBox: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md },
+  expDot: { width: 12, height: 12, borderRadius: 6 },
+  expMain: { flex: 1 },
+  expCatName: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '700' },
+  expNote: { color: Colors.textSecondary, fontSize: FontSize.xs, marginTop: 2, fontWeight: '500' },
+  expEnd: { alignItems: 'flex-end' },
+  expValue: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '800' },
+  expOriginalValue: { color: Colors.textSecondary, fontSize: 10, marginTop: 2, fontWeight: '600' },
+
+  emptyContainer: { alignItems: 'center', paddingVertical: 40, gap: 12 },
+  emptyText: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '600' },
+
+  monthCompRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 10, borderRadius: Radius.md, paddingHorizontal: 10, paddingVertical: 6,
+  },
+  monthCompText: { fontSize: FontSize.xs, fontWeight: '700' },
+
+  fab: {
+    position: 'absolute', bottom: 30, right: 30, width: 64, height: 64, borderRadius: 32,
+    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 12,
+  },
+  fabInner: { flex: 1, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
 });
